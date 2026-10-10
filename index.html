@@ -463,6 +463,23 @@
   .elective-credits:focus { border-color: var(--accent); }
   .course-card.locked .elective-credits { cursor: not-allowed; }
 
+  .elective-pick {
+    width: 100%;
+    background: var(--surface2);
+    border: 1px solid var(--elective-border);
+    border-radius: 3px;
+    color: var(--text);
+    font-family: var(--font-sans);
+    font-size: 0.72rem;
+    padding: 0.25rem 0.35rem;
+    cursor: pointer;
+    outline: none;
+    text-overflow: ellipsis;
+  }
+
+  .elective-pick:focus { border-color: var(--accent); }
+  .elective-pick.unchosen { color: var(--text-muted); }
+
   /* ---- STATE CYCLE INDICATOR ---- */
   .course-card::after {
     content: '';
@@ -666,6 +683,7 @@
 const KEY = {
   progress: 'gam_progress',
   electives: 'gam_elective_credits',
+  picks: 'gam_elective_picks',
   name: 'gam_student_name',
   id: 'gam_student_id',
   start: 'gam_start_date',
@@ -705,6 +723,22 @@ function safeParseElectives(raw) {
   }
 }
 
+// picks: { slotId: course code } — code must be on that slot's list
+function safeParsePicks(raw) {
+  try {
+    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return {};
+    const clean = {};
+    for (const [k, v] of Object.entries(parsed)) {
+      const c = COURSE_MAP.get(k);
+      if (c && electiveList(c).some(o => o.code === v) && !Object.values(clean).includes(v)) clean[k] = v;
+    }
+    return clean;
+  } catch {
+    return {};
+  }
+}
+
 // ============================================================
 // SECURITY: Sanitise student info — strip angle brackets, cap length.
 // Values are only ever written back via input.value (never innerHTML).
@@ -726,8 +760,26 @@ function sanitiseText(str) {
 //             = CMP2006 AND (MAT2003 OR MAT1008)
 //   entry     external entry requirement (shown, never locks)
 //   elective  credit value is chosen by the student (3 or 4)
+//   list      key into ELECTIVE_LISTS — student also picks the course
 // ============================================================
 const ELECTIVE_CREDIT_OPTIONS = [3, 4];
+
+// SCIT electives, as listed in the SCIT Module Selection Guide
+// (Animation programme — the only guide that lists them).
+// `star` = marked * in the guide (has prerequisite/s of its own).
+// Courses already in this programme are left out of the dropdown.
+const ELECTIVE_LISTS = {
+  scit: [
+    { code: "CMP1026", title: "Computer Networks I" },
+    { code: "CIT2011", title: "Web Programming", star: true },
+    { code: "CIT3025", title: "IS Innovation and Emerging Technologies", star: true },
+    { code: "CIT3021", title: "Foundations of Information Systems", star: true },
+    { code: "CIT3020", title: "Digital Video Effects", star: true },
+    { code: "CIT3028", title: "Digital Graphics", star: true },
+    { code: "CIT4032", title: "IS Planning & Management", star: true },
+    { code: "CIT3023", title: "Introduction to Human Computer Interface", star: true },
+  ],
+};
 
 const PROGRAMME = {
   name: "BSc Gaming — Game Development",
@@ -800,7 +852,7 @@ const PROGRAMME = {
             { id: "ANI1002", title: "Animation Tools I", deps: [], credits: 3 },
             { id: "ECS3001", title: "Mobile Programming I", deps: ["CMP1001"], credits: 3 },
             { id: "ECS3003", title: "Server-side Development", deps: ["CMP2018"], credits: 3 },
-            { id: "SCIT_ELEC_5", code: "ELECTIVE", title: "SCIT Elective", deps: [], credits: 3, elective: true },
+            { id: "SCIT_ELEC_5", code: "ELECTIVE", title: "SCIT Elective", deps: [], credits: 3, elective: true, list: "scit" },
           ]
         },
         {
@@ -856,6 +908,7 @@ const COURSE_MAP = new Map(ALL_COURSES.map(c => [c.id, c]));
 // status: 0=unlocked, 1=in-progress, 2=completed
 let progress = {};        // { courseId: 0|1|2 }
 let electiveCredits = {}; // { electiveId: 3|4 }
+let electivePicks = {};   // { slotId: course code }
 
 const STATUS = { UNLOCKED: 0, IN_PROGRESS: 1, COMPLETED: 2 };
 const STATUS_ICONS = { 0: '', 1: '◑', 2: '✓' };
@@ -899,11 +952,13 @@ function storeSet(key, value) {
 function saveProgress() {
   storeSet(KEY.progress, JSON.stringify(progress));
   storeSet(KEY.electives, JSON.stringify(electiveCredits));
+  storeSet(KEY.picks, JSON.stringify(electivePicks));
 }
 
 function loadProgress() {
   progress = safeParseProgress(storeGet(KEY.progress));
   electiveCredits = safeParseElectives(storeGet(KEY.electives));
+  electivePicks = safeParsePicks(storeGet(KEY.picks));
 }
 
 const STUDENT_FIELDS = [
@@ -956,8 +1011,29 @@ function creditsOf(course) {
   return course.elective ? (electiveCredits[course.id] || course.credits) : course.credits;
 }
 
+// The courses a slot can be filled with (none for a free University Elective).
+function electiveList(course) {
+  const list = course.list ? ELECTIVE_LISTS[course.list] : null;
+  return list ? list.filter(o => !COURSE_MAP.has(o.code)) : [];
+}
+
+function pickOf(course) {
+  return electiveList(course).find(o => o.code === electivePicks[course.id]) || null;
+}
+
 function codeOf(course) {
-  return course.code || course.id;
+  const pick = pickOf(course);
+  return pick ? pick.code : (course.code || course.id);
+}
+
+function titleOf(course) {
+  const pick = pickOf(course);
+  return pick ? `${course.title}: ${pick.title}` : course.title;
+}
+
+// Courses already picked in another slot, so one can't be counted twice.
+function takenElsewhere(course) {
+  return new Set(Object.entries(electivePicks).filter(([s]) => s !== course.id).map(([, code]) => code));
 }
 
 function formatDep(dep) {
@@ -973,6 +1049,10 @@ function cycleStatus(course) {
   if (!isUnlocked(course)) {
     const missing = course.deps.filter(d => !depMet(d));
     showToast(`🔒 Requires: ${formatDeps(missing)}`);
+    return;
+  }
+  if (course.list && !pickOf(course) && !progress[course.id]) {
+    showToast(`Pick a course for this ${course.title} first.`);
     return;
   }
   const cur = progress[course.id] || STATUS.UNLOCKED;
@@ -1012,6 +1092,21 @@ function renderCredits(course, isLocked) {
     .map(n => `<option value="${n}"${n === cur ? ' selected' : ''}>${n} cr</option>`)
     .join('');
   return `<select class="elective-credits" data-elective="${esc(course.id)}" aria-label="Credits for ${esc(course.title)}"${isLocked ? ' disabled' : ''}>${opts}</select>`;
+}
+
+function renderPicker(course) {
+  const list = electiveList(course);
+  if (!list.length) return '';
+  const pick = pickOf(course);
+  const taken = takenElsewhere(course);
+  const opts = list.map(o => {
+    const used = taken.has(o.code);
+    return `<option value="${esc(o.code)}"${pick && pick.code === o.code ? ' selected' : ''}${used ? ' disabled' : ''}>`
+      + `${esc(o.code)}${o.star ? '*' : ''} — ${esc(o.title)}${used ? ' (chosen in another slot)' : ''}</option>`;
+  }).join('');
+  return `<select class="elective-pick${pick ? '' : ' unchosen'}" data-slot="${esc(course.id)}" aria-label="Choose course for ${esc(course.title)}">
+      <option value=""${pick ? '' : ' selected'}>— Choose course —</option>${opts}
+    </select>`;
 }
 
 function render() {
@@ -1061,6 +1156,7 @@ function render() {
               <span class="course-status-icon">${esc(icon)}</span>
             </div>
             <div class="course-name">${esc(course.title)}</div>
+            ${renderPicker(course)}
             <div class="course-footer">
               <span class="course-credits">${renderCredits(course, isLocked)}${meta ? ' · ' + meta : ''}</span>
               ${prereq}
@@ -1094,7 +1190,7 @@ function render() {
 const content = document.getElementById('main-content');
 
 content.addEventListener('click', e => {
-  if (e.target.closest('.elective-credits')) return;
+  if (e.target.closest('select')) return;
   const card = e.target.closest('.course-card');
   if (!card) return;
   const course = COURSE_MAP.get(card.dataset.id);
@@ -1103,7 +1199,7 @@ content.addEventListener('click', e => {
 
 content.addEventListener('keydown', e => {
   if (e.key !== 'Enter' && e.key !== ' ') return;
-  if (e.target.closest('.elective-credits')) return;
+  if (e.target.closest('select')) return;
   const card = e.target.closest('.course-card');
   if (!card) return;
   e.preventDefault();
@@ -1116,6 +1212,21 @@ content.addEventListener('keydown', e => {
 });
 
 content.addEventListener('change', e => {
+  const pickSel = e.target.closest('.elective-pick');
+  if (pickSel) {
+    const course = COURSE_MAP.get(pickSel.dataset.slot);
+    if (!course) return;
+    const pick = electiveList(course).find(o => o.code === pickSel.value);
+    if (pick && !takenElsewhere(course).has(pick.code)) {
+      electivePicks[course.id] = pick.code;
+      showToast(`${course.title}: ${pick.code} ${pick.title}`);
+    } else {
+      delete electivePicks[course.id];
+    }
+    saveProgress();
+    render();
+    return;
+  }
   const sel = e.target.closest('.elective-credits');
   if (!sel) return;
   const course = COURSE_MAP.get(sel.dataset.elective);
@@ -1166,7 +1277,7 @@ function showTooltip(e, course) {
   tt.appendChild(titleEl);
 
   const nameEl = document.createElement('div');
-  nameEl.textContent = course.title;
+  nameEl.textContent = titleOf(course);
   tt.appendChild(nameEl);
 
   const meta = document.createElement('div');
@@ -1175,6 +1286,9 @@ function showTooltip(e, course) {
   if (course.entry) lines.push(`Entry: ${course.entry}`);
   lines.push(`Credits: ${creditsOf(course)}${course.elective ? ' (3 or 4 — choose on card)' : ''}`);
   if (course.modality) lines.push(`Modality: ${course.modality}`);
+  const pick = pickOf(course);
+  if (pick && pick.star) lines.push('* This elective has its own prerequisites — confirm with your advisor.');
+  if (electiveList(course).length && !pick) lines.push('No course chosen yet.');
   lines.push(`Status: ${statusLabel}`);
   lines.forEach((line, i) => {
     if (i) meta.appendChild(document.createElement('br'));
@@ -1235,6 +1349,7 @@ function confirmReset() {
   if (confirm('Reset all progress? This cannot be undone.')) {
     progress = {};
     electiveCredits = {};
+    electivePicks = {};
     saveProgress();
     render();
     showToast('Progress reset.');
@@ -1252,6 +1367,7 @@ function exportData() {
     exportedAt: new Date().toISOString(),
     progress: safeParseProgress(storeGet(KEY.progress)),
     elective_credits: safeParseElectives(storeGet(KEY.electives)),
+    elective_picks: safeParsePicks(storeGet(KEY.picks)),
     student_name: storeGet(KEY.name) || '',
     student_id:   storeGet(KEY.id) || '',
     start_date:   storeGet(KEY.start) || '',
@@ -1287,6 +1403,7 @@ function importData(event) {
       }
       if (raw.progress) storeSet(KEY.progress, JSON.stringify(safeParseProgress(raw.progress)));
       if (raw.elective_credits) storeSet(KEY.electives, JSON.stringify(safeParseElectives(raw.elective_credits)));
+      if (raw.elective_picks) storeSet(KEY.picks, JSON.stringify(safeParsePicks(raw.elective_picks)));
       if (raw.student_name !== undefined) storeSet(KEY.name,    sanitiseText(raw.student_name));
       if (raw.student_id   !== undefined) storeSet(KEY.id,      sanitiseText(raw.student_id));
       if (raw.start_date   !== undefined) storeSet(KEY.start,   sanitiseText(raw.start_date));

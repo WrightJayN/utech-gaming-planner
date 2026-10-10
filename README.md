@@ -22,6 +22,7 @@ Credits and overall percentage update in real time.
 |---|---|
 | 🎮 Single track | BSc Gaming — Game Development major, 4 years, 8 semesters |
 | 🔒 Prereq locking | Courses unlock only when dependencies are met (including "either/or" prereqs) |
+| 🎯 Elective picker | Choose the exact SCIT Elective course from a dropdown on its card |
 | 🎚 Elective credits | Pick 3 or 4 credits for the SCIT Elective from a dropdown on its card |
 | 📊 Live credit counter | Tracks earned vs. total credits; header % and sidebar agree |
 | 💾 Offline-first | All data in `localStorage` — works without internet |
@@ -99,6 +100,7 @@ Notes on how the guide is modelled:
 - **COM1024**'s requirement (COM1001 / CSEC / CAPE grade) is an entry requirement, so it is shown but never locks the course.
 - **Animation Tools II** is printed as "ANI1002" in Semester 6; it is recorded here as **ANI1006** (its code in the Animation programme), with ANI1002 Animation Tools I as its prerequisite.
 - **ECS3003** is printed "Server-side Devlopment"; the typo is corrected.
+- The Gaming guide doesn't list SCIT electives, so the SCIT Elective dropdown uses the SCIT list from the Animation programme's guide, minus courses already in this programme (CMP1026). Electives marked \* have prerequisites of their own.
 - Year labels are the planner's own; the guide only numbers the semesters.
 
 ---
